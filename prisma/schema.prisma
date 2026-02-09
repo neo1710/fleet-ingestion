@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model MeterHistory {
+  id             String   @id @default(uuid())
+  meterId        String
+  kwhConsumedAc  Float
+  voltage        Float
+  timestamp      DateTime
+
+  @@index([meterId, timestamp])
+}
+
+model VehicleHistory {
+  id              String   @id @default(uuid())
+  vehicleId       String
+  soc             Float
+  kwhDeliveredDc  Float
+  batteryTemp     Float
+  timestamp       DateTime
+
+  @@index([vehicleId, timestamp])
+}
+
+model MeterLive {
+  meterId        String   @id
+  kwhConsumedAc  Float
+  voltage        Float
+  timestamp      DateTime
+}
+
+model VehicleLive {
+  vehicleId       String   @id
+  soc             Float
+  kwhDeliveredDc  Float
+  batteryTemp     Float
+  timestamp       DateTime
+}
