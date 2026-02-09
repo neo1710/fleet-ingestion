@@ -1,98 +1,169 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# High-Scale Energy Ingestion Engine
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend service for ingesting and analyzing telemetry from smart meters and EV fleets.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Built with:
+- NestJS
+- PostgreSQL
+- Prisma
+- Docker
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## System Overview
 
-## Project setup
+The platform receives two independent telemetry streams every 60 seconds:
 
-```bash
-$ npm install
-```
+### 1. Smart Meter (Grid Side)
+Measures AC energy pulled from the grid.
 
-## Compile and run the project
+{ meterId, kwhConsumedAc, voltage, timestamp }
 
-```bash
-# development
-$ npm run start
 
-# watch mode
-$ npm run start:dev
+### 2. Vehicle (Battery Side)
+Measures DC energy delivered to the battery.
 
-# production mode
-$ npm run start:prod
-```
+{ vehicleId, soc, kwhDeliveredDc, batteryTemp, timestamp }
 
-## Run tests
 
-```bash
-# unit tests
-$ npm run test
+Because AC must be converted to DC, some energy is lost.  
+System efficiency is calculated as:
 
-# e2e tests
-$ npm run test:e2e
+Efficiency = DC Delivered / AC Consumed
 
-# test coverage
-$ npm run test:cov
-```
 
-## Deployment
+---
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Architecture
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+The system uses a **Hot + Cold data strategy**.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+### Cold Store (Historical Tables)
+Append-only tables for long-term analytics:
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+- `meter_history`
+- `vehicle_history`
 
-## Resources
+Characteristics:
+- INSERT-only
+- No updates or deletes
+- Optimized for large-scale time-series data
+- Indexed by `(deviceId, timestamp)`
 
-Check out a few resources that may come in handy when working with NestJS:
+This design supports **billions of records** without affecting write performance.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+### Hot Store (Operational Tables)
+Tables for fast dashboard reads:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+- `meter_live`
+- `vehicle_live`
 
-## Stay in touch
+Characteristics:
+- One row per device
+- Updated using UPSERT
+- Always contains latest state
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+This avoids scanning large historical tables for current status.
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Data Flow
+
+1. Device sends telemetry every 60 seconds.
+2. Ingestion endpoint receives payload.
+3. Data is:
+   - INSERTED into history table.
+   - UPSERTED into live table.
+
+Incoming Data
+↓
+Ingestion API
+↓
+History Table (append-only)
++
+Live Table (upsert latest state)
+
+
+---
+
+## API Endpoints
+
+### Ingestion
+POST /v1/ingest
+
+
+Meter example:
+```json
+{
+  "type": "meter",
+  "meterId": "V1",
+  "kwhConsumedAc": 10,
+  "voltage": 220,
+  "timestamp": "2026-02-08T10:00:00Z"
+}
+Vehicle example:
+
+{
+  "type": "vehicle",
+  "vehicleId": "V1",
+  "soc": 60,
+  "kwhDeliveredDc": 8.5,
+  "batteryTemp": 32,
+  "timestamp": "2026-02-08T10:00:00Z"
+}
+Analytics
+GET /v1/analytics/performance/:vehicleId
+Returns 24-hour summary:
+
+{
+  "vehicleId": "V1",
+  "totalAcConsumed": 120,
+  "totalDcDelivered": 102,
+  "efficiencyRatio": 0.85,
+  "avgBatteryTemp": 31.5
+}
+Performance Considerations
+Index Strategy
+Historical tables use composite indexes:
+
+(vehicleId, timestamp)
+(meterId, timestamp)
+This ensures:
+
+24-hour queries use index range scans
+
+No full table scans
+
+Constant-time lookups for recent data
+
+Scaling Strategy (14.4M Records/Day)
+At 10,000 devices sending data every minute:
+
+10,000 devices × 60 min × 24 hr = 14.4 million records/day
+Future scaling strategies:
+
+Time-based partitioning of history tables.
+
+Horizontal scaling of ingestion services.
+
+Message queue (Kafka) between ingestion and storage.
+
+Read replicas for analytics.
+
+Running the Project
+Start the system
+docker-compose up --build
+Test ingestion
+POST http://localhost:3000/v1/ingest
+Test analytics
+GET http://localhost:3000/v1/analytics/performance/V1
+Tech Stack
+NestJS (TypeScript)
+
+PostgreSQL
+
+Prisma ORM
+
+Docker

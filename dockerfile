@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20
 
 WORKDIR /app
 
@@ -7,6 +7,10 @@ RUN npm install
 
 COPY . .
 
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build NestJS app
 RUN npm run build
 
 CMD ["node", "dist/main.js"]
